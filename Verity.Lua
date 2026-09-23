@@ -12,7 +12,7 @@ local CONFIG_FILE = "Verity_Config.json"
 local MISTRAL_API_KEY = ""
 local OPENROUTER_API_KEY = ""
 local FISH_API_KEY = "sk-fish-tYLnEFuG_H7y3fDmwK5zgp23pQVfKOp-wDRhFDwFhY0" 
-local FISH_VOICE_ID = "42bfd48f5d764b029546636950c24dcb"
+local FISH_VOICE_ID = "8d21b053e2804e2a890e1cf62f267b6f"
 
 -- ACTIVE MODEL CHOICE: "Mistral" or "OpenRouter"
 local currentAIModel = "OpenRouter"
