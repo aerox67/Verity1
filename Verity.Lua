@@ -9,24 +9,17 @@ local LocalPlayer = Players.LocalPlayer
 
 -- CONFIG API & KEYS (Pre-filled automatically)
 local CONFIG_FILE = "Verity_Config.json"
-local MISTRAL_API_KEY = ""
+local GEMINI_API_KEY = ""
 local OPENROUTER_API_KEY = ""
 local FISH_API_KEY = "sk-fish-tYLnEFuG_H7y3fDmwK5zgp23pQVfKOp-wDRhFDwFhY0" 
-local FISH_VOICE_ID = "8d21b053e2804e2a890e1cf62f267b6f"
+local FISH_VOICE_ID = "2d1806418d654c3f936b71e9827d427c"
 
--- ACTIVE MODEL CHOICE: "Mistral" or "OpenRouter"
-local currentAIModel = "OpenRouter"
+-- ACTIVE MODEL CHOICE: "Gemini" or "OpenRouter"
+local currentAIModel = "Gemini"
 
 -- ACTIVE AI LANGUAGE: "id" (Indonesian) or "en" (English)
 local currentLanguage = "en"
 
--- ===================== BEAT SYNC (so the bounce lands right on the song's beat) =====================
--- From the audio recording analysis, the part of the song that plays during Verity's
--- fall & bounce has a consistent pattern at ~120 BPM (1 beat = 0.5 seconds). All the tween
--- durations below are deliberately set to multiples of 1/8 beat (0.25s) so every impact/bounce
--- lands EXACTLY on the beat.
--- If during testing it feels slightly off (your song has a different tempo), just change the
--- SONG_BPM number below and every bounce will automatically re-sync.
 local SONG_BPM = 120
 local function beats(n)
     return (60 / SONG_BPM) * n
@@ -37,7 +30,6 @@ local TALKING_FACE = "rbxthumb://type=Asset&id=114293272612131&w=420&h=420"
 local FALL_FACE = "rbxthumb://type=Asset&id=111386390222268&w=420&h=420"
 local COLOR_VERITY = Color3.fromRGB(255, 225, 50)
 
--- Forward declarations
 local spawnVerity
 local verityPart, verityMesh, verityGui, verityGuiText, verityFace, bubbleFrame, bubbleStroke, verityBubbleText
 local bubbleDisplayToken = 0
@@ -50,7 +42,6 @@ local isVerityBusy = false
 local isFlying = false
 local isFollowing = false
 
--- ===================== ANDROID / EXECUTOR COMPATIBILITY =====================
 local function getRequestFunction()
     return (syn and syn.request)
         or (http and http.request)
@@ -86,7 +77,7 @@ local function loadConfig()
     if data then
         local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
         if ok and type(decoded) == "table" then
-            if decoded.mistralKey and decoded.mistralKey ~= "" then MISTRAL_API_KEY = decoded.mistralKey end
+            if decoded.geminiKey and decoded.geminiKey ~= "" then GEMINI_API_KEY = decoded.geminiKey end
             if decoded.openrouterKey and decoded.openrouterKey ~= "" then OPENROUTER_API_KEY = decoded.openrouterKey end
             if decoded.activeModel and decoded.activeModel ~= "" then currentAIModel = decoded.activeModel end
             if decoded.language and decoded.language ~= "" then currentLanguage = decoded.language end
@@ -96,7 +87,7 @@ end
 
 local function saveConfig()
     if not hasFileSystem then return end
-    local data = { mistralKey = MISTRAL_API_KEY, openrouterKey = OPENROUTER_API_KEY, activeModel = currentAIModel, language = currentLanguage }
+    local data = { geminiKey = GEMINI_API_KEY, openrouterKey = OPENROUTER_API_KEY, activeModel = currentAIModel, language = currentLanguage }
     pcall(function() safeWriteFile(CONFIG_FILE, HttpService:JSONEncode(data)) end)
 end
 loadConfig()
@@ -117,7 +108,6 @@ local pName = LocalPlayer.Name
 local pDisplayName = LocalPlayer.DisplayName
 local pJoinDate = getPlayerContext(LocalPlayer)
 
--- NO COLLISION
 local function removeCollisionWithCharacters()
     if not verityPart then return end
     for _, obj in pairs(verityPart:GetChildren()) do
@@ -151,7 +141,6 @@ LocalPlayer.CharacterAdded:Connect(function()
     removeCollisionWithCharacters()
 end)
 
--- SYSTEM PROMPT AI & MEMORY
 local function getSystemPrompt()
     local langInstruction = ""
     if currentLanguage == "id" then
@@ -192,7 +181,6 @@ local function addMemory(role, content)
     end
 end
 
--- ===================== VERITY SPEECH / BUBBLE / MOUTH ANIMATION =====================
 local function countUtf8Characters(value)
     local count = #tostring(value or "")
     pcall(function()
@@ -246,16 +234,10 @@ local function playVeritySpeech(textToSpeak, faceType, soundId)
 
     isVeritySpeaking = true
 
-    -- Do NOT change the face here yet. The face, bubble text, and audio must all appear
-    -- TOGETHER further below, once the audio is actually ready to play - so we avoid
-    -- the face "talking first" while the text & sound haven't started yet.
-
     local requestFunc = getRequestFunction()
     local audioSound = nil
 
     if soundId and soundId ~= "" then
-        -- Priority: direct Roblox SoundId. No network/generate delay like TTS,
-        -- so it loads fast and syncs easily with the text.
         pcall(function()
             audioSound = Instance.new("Sound")
             audioSound.Name = "VerityVoice"
@@ -305,8 +287,6 @@ local function playVeritySpeech(textToSpeak, faceType, soundId)
     end
 
     if not audioSound then
-        -- No audio at all (SoundId empty & Fish TTS failed/off) -> show
-        -- the text using an estimated timer based on text length, like the old fallback.
         if verityFace then verityFace.Texture = faceType or TALKING_FACE end
         if verityGuiText then verityGuiText.Text = textToSpeak end
         if bubbleFrame then bubbleFrame.BackgroundTransparency = 0.25 end
@@ -327,12 +307,10 @@ local function playVeritySpeech(textToSpeak, faceType, soundId)
         return
     end
 
-    -- Wait until the audio is ACTUALLY ready (loaded) BEFORE showing the text & playing, for exact sync.
     if not audioSound.IsLoaded then
         pcall(function() audioSound.Loaded:Wait() end)
     end
 
-    -- Face, text & sound all appear TOGETHER, on the same line.
     if verityFace then verityFace.Texture = faceType or TALKING_FACE end
     if verityGuiText then verityGuiText.Text = textToSpeak end
     if bubbleFrame then bubbleFrame.BackgroundTransparency = 0.25 end
@@ -363,7 +341,6 @@ local function playVeritySpeech(textToSpeak, faceType, soundId)
     end
 end
 
--- ===================== ULTRA-MODERN & DRAGGABLE GUI =====================
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 if playerGui:FindFirstChild("VerityGui") then
     playerGui.VerityGui:Destroy()
@@ -433,7 +410,6 @@ local function addSoftGradient(parent, brightTop)
     return gradient
 end
 
--- Top Right Buttons Container
 local topBar = Instance.new("Frame")
 topBar.Size = UDim2.new(0, 470, 0, 45)
 topBar.Position = UDim2.new(1, -485, 0, 15)
@@ -446,10 +422,9 @@ topBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 topBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
 topBarLayout.Padding = UDim.new(0, 8)
 
--- AI Model Switch Button
 local modelSwitchBtn = Instance.new("TextButton")
 modelSwitchBtn.Size = UDim2.new(0, 110, 0, 42)
-modelSwitchBtn.BackgroundColor3 = (currentAIModel == "Mistral") and Color3.fromRGB(30, 90, 160) or Color3.fromRGB(110, 30, 160)
+modelSwitchBtn.BackgroundColor3 = (currentAIModel == "Gemini") and Color3.fromRGB(40, 120, 220) or Color3.fromRGB(110, 30, 160)
 modelSwitchBtn.BackgroundTransparency = 0.1
 modelSwitchBtn.TextColor3 = Color3.new(1, 1, 1)
 modelSwitchBtn.Text = "🤖 Mode: " .. currentAIModel
@@ -463,7 +438,6 @@ msStroke.Color = COLOR_VERITY
 msStroke.Thickness = 2
 addSoftGradient(modelSwitchBtn, true)
 
--- Language Switch Button
 local langSwitchBtn = Instance.new("TextButton")
 langSwitchBtn.Size = UDim2.new(0, 100, 0, 42)
 langSwitchBtn.BackgroundColor3 = (currentLanguage == "id") and Color3.fromRGB(40, 140, 70) or Color3.fromRGB(180, 90, 30)
@@ -480,7 +454,6 @@ lsStroke.Color = COLOR_VERITY
 lsStroke.Thickness = 2
 addSoftGradient(langSwitchBtn, true)
 
--- API Settings Toggle Button
 local settingsToggleBtn = Instance.new("TextButton")
 settingsToggleBtn.Size = UDim2.new(0, 100, 0, 42)
 settingsToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
@@ -497,7 +470,6 @@ stStroke.Color = COLOR_VERITY
 stStroke.Thickness = 2
 addSoftGradient(settingsToggleBtn, true)
 
--- Custom UI Editor Toggle Button
 local uiEditorToggleBtn = Instance.new("TextButton")
 uiEditorToggleBtn.Size = UDim2.new(0, 100, 0, 42)
 uiEditorToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
@@ -519,11 +491,10 @@ addButtonFeedback(langSwitchBtn)
 addButtonFeedback(settingsToggleBtn)
 addButtonFeedback(uiEditorToggleBtn)
 
--- Model Switch Logic
 modelSwitchBtn.MouseButton1Click:Connect(function()
     if currentAIModel == "OpenRouter" then
-        currentAIModel = "Mistral"
-        modelSwitchBtn.BackgroundColor3 = Color3.fromRGB(110, 30, 160)
+        currentAIModel = "Gemini"
+        modelSwitchBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 220)
     else
         currentAIModel = "OpenRouter"
         modelSwitchBtn.BackgroundColor3 = Color3.fromRGB(30, 90, 160)
@@ -535,7 +506,6 @@ modelSwitchBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- Language Switch Logic
 langSwitchBtn.MouseButton1Click:Connect(function()
     if currentLanguage == "id" then
         currentLanguage = "en"
@@ -557,7 +527,6 @@ langSwitchBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ===================== HIDE / SHOW FLOATING TOGGLE BUTTON =====================
 local isUiHidden = false
 local hideToggleButton = Instance.new("TextButton")
 hideToggleButton.Size = UDim2.new(0, 90, 0, 38)
@@ -577,10 +546,9 @@ addSoftGradient(hideToggleButton, true)
 addButtonFeedback(hideToggleButton)
 makeDraggable(hideToggleButton)
 
--- ===================== MODERN SETTINGS PANEL =====================
 local settingsFrame = Instance.new("Frame")
-settingsFrame.Size = UDim2.new(0, 420, 0, 310)
-settingsFrame.Position = UDim2.new(0.5, -210, 0.5, -155)
+settingsFrame.Size = UDim2.new(0, 420, 0, 350)
+settingsFrame.Position = UDim2.new(0.5, -210, 0.5, -175)
 settingsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 settingsFrame.BackgroundTransparency = 0.03
 settingsFrame.Visible = false
@@ -595,7 +563,7 @@ makeDraggable(settingsFrame)
 local settingsTitle = Instance.new("TextLabel")
 settingsTitle.Size = UDim2.new(1, 0, 0, 45)
 settingsTitle.BackgroundTransparency = 1
-settingsTitle.Text = "⚙️ AI API Settings (Mistral & OpenRouter)"
+settingsTitle.Text = "⚙️ AI API Settings (Gemini & OpenRouter)"
 settingsTitle.TextColor3 = COLOR_VERITY
 settingsTitle.TextSize = 14
 settingsTitle.FontFace = Font.new("rbxasset://fonts.families/GothamSSm.json", Enum.FontWeight.Bold)
@@ -631,7 +599,7 @@ local function createInputBox(name, placeholder, defaultText, posY, parent)
     return box
 end
 
-local mistralInput = createInputBox("Mistral API Key:", "Enter Mistral API Key...", MISTRAL_API_KEY, 45, settingsFrame)
+local geminiInput = createInputBox("Gemini API Key:", "Enter Gemini API Key...", GEMINI_API_KEY, 45, settingsFrame)
 local openrouterInput = createInputBox("OpenRouter API Key:", "Enter OpenRouter API Key...", OPENROUTER_API_KEY, 115, settingsFrame)
 
 local saveApiBtn = Instance.new("TextButton")
@@ -694,13 +662,12 @@ closeApiBtn.MouseButton1Click:Connect(function()
     setPanelOpen(settingsFrame, false)
 end)
 saveApiBtn.MouseButton1Click:Connect(function()
-    MISTRAL_API_KEY = mistralInput.Text
+    GEMINI_API_KEY = geminiInput.Text
     OPENROUTER_API_KEY = openrouterInput.Text
     saveConfig()
     settingsFrame.Visible = false
 end)
 
--- ===================== CUSTOM UI EDITOR PANEL =====================
 local uiEditorFrame = Instance.new("Frame")
 uiEditorFrame.Size = UDim2.new(0, 380, 0, 360)
 uiEditorFrame.Position = UDim2.new(0.5, -190, 0.5, -180)
@@ -850,7 +817,6 @@ closeEditorBtn.MouseButton1Click:Connect(function()
     setPanelOpen(uiEditorFrame, false)
 end)
 
--- ===================== MODERN CHAT BAR =====================
 local chatFrame = Instance.new("Frame")
 chatFrame.Size = UDim2.new(0, 420, 0, 52)
 chatFrame.Position = UDim2.new(0.5, -210, 1, -75)
@@ -903,7 +869,6 @@ end
 
 local sendButton = createStyledButton("Send", "Send", Color3.fromRGB(50, 140, 255), 0.2, 0.77, chatFrame)
 
--- HIDE / SHOW UI FUNCTIONALITY
 hideToggleButton.MouseButton1Click:Connect(function()
     isUiHidden = not isUiHidden
     topBar.Visible = not isUiHidden
@@ -920,7 +885,6 @@ hideToggleButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===================== DROP & THROW ACTION PANEL =====================
 local dropButton = Instance.new("TextButton")
 dropButton.Size = UDim2.new(0, 140, 0, 42)
 dropButton.Position = UDim2.new(0.35, -75, 0.78, 0)
@@ -967,7 +931,6 @@ dropLayoutToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===================== AI HANDLER =====================
 local function askAI(promptContext)
     local requestFunc = getRequestFunction()
     if not requestFunc then
@@ -1009,53 +972,50 @@ local function askAI(promptContext)
         end
         return "Failed to connect to OpenRouter AI!"
 
-    elseif currentAIModel == "Mistral" and MISTRAL_API_KEY ~= "" then
+    elseif currentAIModel == "Gemini" and GEMINI_API_KEY ~= "" then
         addMemory("user", promptContext)
 
-        local success, response
-        for i = 1, 3 do
-            success, response = pcall(function()
-                return requestFunc({
-                    Url = "https://api.mistral.ai/v1/chat/completions",
-                    Method = "POST",
-                    Headers = {
-                        ["Content-Type"] = "application/json",
-                        ["Authorization"] = "Bearer " .. MISTRAL_API_KEY
-                    },
-                    Body = HttpService:JSONEncode({
-                        model = "mistral-small-latest",
-                        messages = conversationHistory,
-                        max_tokens = 150
-                    })
+        local geminiContents = {}
+        for _, msg in ipairs(conversationHistory) do
+            if msg.role ~= "system" then
+                table.insert(geminiContents, {
+                    role = (msg.role == "assistant") and "model" or "user",
+                    parts = {{ text = msg.content }}
                 })
-            end)
-            if success and response and response.Body then break end
-            task.wait(1)
+            end
         end
 
-        if not success or not response or not response.Body then
-            return "AI connection lost, please try again!"
-        end
+        local success, response = pcall(function()
+            return requestFunc({
+                Url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" .. GEMINI_API_KEY,
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode({
+                    system_instruction = {
+                        parts = { { text = getSystemPrompt() } }
+                    },
+                    contents = geminiContents
+                })
+            })
+        end)
 
-        local ok, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
-        if not ok or type(data) ~= "table" then
-            return "Response format error!"
+        if success and response and response.Body then
+            local ok, data = pcall(function() return HttpService:JSONDecode(response.Body) end)if ok and data and data.candidates and data.candidates[1] and data.candidates[1].content then
+                local content = data.candidates[1].content.parts[1].text
+                if content and content ~= "" then
+                    addMemory("assistant", content)
+                    return content
+                end
+            end
         end
-
-        local val = "Hello!"
-        if data.choices and data.choices[1] and data.choices[1].message then
-            local content = data.choices[1].message.content
-            if content and content ~= "" then val = content end
-        end
-
-        addMemory("assistant", val)
-        return val
+        return "Failed to connect to Gemini AI!"
     else
         return "API Key for " .. currentAIModel .. " mode is not configured! Open ⚙️ Config."
     end
 end
 
--- ===================== VERITY MOVEMENT & LOGIC =====================
 local function teleportVerityToPlayer()
     if not verityPart then return end
     local char = LocalPlayer.Character
@@ -1184,7 +1144,6 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ===================== CHAT & INTERACTION BUTTONS =====================
 sendButton.MouseButton1Click:Connect(function()
     if chatInput.Text == "" or isVerityBusy then return end
     local msg = chatInput.Text
@@ -1283,7 +1242,6 @@ throwButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===================== SPAWN VERITY FUNCTION =====================
 function spawnVerity(pos, isRespawnCall)
     if verityPart and verityPart.Parent then verityPart:Destroy() end
 
@@ -1402,22 +1360,6 @@ function spawnVerity(pos, isRespawnCall)
     end)
 
     if isRespawnCall then hasIntroduced = true end
-    -- NOTE: the intro speech was moved out of here and is now called manually AFTER
-    -- playVerityFallAnimation finishes (see the box.Touched handler below),
-    -- so "Hello! I'm Verity" only plays once she's done bouncing.
-end
-
-
--- ===================== VERITY FALL + REALISTIC SHORT BOUNCE =====================
-local function tweenPart(part, duration, y, groundY, startX, startZ, rot)
-    if not part or not part.Parent then return false end
-    local tw = TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-        Position = Vector3.new(startX, groundY + 1.75 + y, startZ),
-        Orientation = Vector3.new(rot or 0, 0, 0)
-    })
-    tw:Play()
-    tw.Completed:Wait()
-    return part and part.Parent
 end
 
 local function playVerityFallAnimation(groundY)
@@ -1427,29 +1369,15 @@ local function playVerityFallAnimation(groundY)
     local x, z = verityPart.Position.X, verityPart.Position.Z
     local baseY = groundY + 1.75
 
-    -- Keyframe timing is locked to the beat grid (beats()) so every impact & bounce peak
-    -- lands EXACTLY on the song's beat, not on arbitrary numbers. The motion shape is the
-    -- same as before, just shifted slightly in time to line up with the music:
-    --   beat 0        -> starts up high
-    --   beat 1        -> held briefly before falling (anticipation)
-    --   beat 4        -> first IMPACT (hits the ground), this is the song's "drop"
-    --   beat 5        -> first bounce peak
-    --   beat 6        -> lands again (on-beat)
-    --   beat 6.5      -> small rebound bump up (1/8 beat)
-    --   beat 7        -> final landing, right on the full beat
-    -- DESCENT_SLOWDOWN adds a constant delay only to the FALL phase (beat 1 -> beat 4),
-    -- and every subsequent bounce frame is shifted back by the same amount, so each
-    -- individual bounce's duration (and its sync to the beat) stays EXACTLY the same
-    -- as before - it's just the overall descent that feels a bit slower.
     local DESCENT_SLOWDOWN = 0.45
     local frames = {
         {beats(0),                    28.0, 0},
         {beats(1),                    28.0, 0},
-        {beats(4) + DESCENT_SLOWDOWN,  0.0, 0}, -- descent, slightly slower than before
-        {beats(5) + DESCENT_SLOWDOWN,  2.60, -4}, -- first bounce peak
-        {beats(6) + DESCENT_SLOWDOWN,  0.0, 3}, -- lands again
-        {beats(6.5) + DESCENT_SLOWDOWN, 0.75, -2}, -- small rebound on the 1/8 beat
-        {beats(7) + DESCENT_SLOWDOWN,  0.0, 0}, -- final landing
+        {beats(4) + DESCENT_SLOWDOWN,  0.0, 0},
+        {beats(5) + DESCENT_SLOWDOWN,  2.60, -4},
+        {beats(6) + DESCENT_SLOWDOWN,  0.0, 3},
+        {beats(6.5) + DESCENT_SLOWDOWN, 0.75, -2},
+        {beats(7) + DESCENT_SLOWDOWN,  0.0, 0},
     }
 
     verityPart.Position = Vector3.new(x, baseY + frames[1][2], z)
@@ -1475,7 +1403,6 @@ local function playVerityFallAnimation(groundY)
     end
 end
 
--- ===================== MYSTERY BOX =====================
 local function spawnMysteryBox()
     local currentCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local currentRoot = currentCharacter:WaitForChild("HumanoidRootPart")
@@ -1549,9 +1476,6 @@ local function spawnMysteryBox()
     local startX, startZ = box.Position.X, box.Position.Z
     local groundBoxY = groundY + 1.75
 
-    -- Box falls from above and REALLY bounces before becoming idle.
-    -- Each tween's duration is also locked to beats(), so every "thud" (impact) of the box
-    -- lands right on the song's beat, just like Verity's fall animation below.
     task.spawn(function()
         local drop = TweenService:Create(box, TweenInfo.new(beats(4), Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
             Position = Vector3.new(startX, groundBoxY, startZ)
@@ -1560,7 +1484,6 @@ local function spawnMysteryBox()
         drop.Completed:Wait()
         if not box.Parent or triggered then return end
 
-        -- Impact squash (still quick/sub-beat, this is just an anticipation "flick", not the main beat).
         local squash = TweenService:Create(mesh, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Scale = Vector3.new(1.08, 0.78, 1.08)
         })
@@ -1596,6 +1519,7 @@ local function spawnMysteryBox()
         local normal = TweenService:Create(mesh, TweenInfo.new(beats(0.5), Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
             Scale = Vector3.new(0.95, 0.95, 0.95)
         })
+ })
         land2:Play(); normal:Play(); land2.Completed:Wait()
         landed = true
 
@@ -1616,15 +1540,12 @@ local function spawnMysteryBox()
             boxText.Text = "Verity!"
             if boxSound then boxSound:Stop(); boxSound:Destroy() end
 
-            -- Open/reveal: rise to the SAME spawn height as Verity.
-            -- This is a real tween, not a teleport.
             local veritySpawnY = groundY + 29.75
             local hitUp = TweenService:Create(box, TweenInfo.new(1.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
                 Position = Vector3.new(startX, veritySpawnY, startZ)
             })
             hitUp:Play(); hitUp.Completed:Wait()
 
-            -- Hold briefly at the same height where Verity spawns.
             task.wait(0.12)
 
             local fade = TweenService:Create(box, TweenInfo.new(0.30, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Transparency = 1})
@@ -1633,11 +1554,9 @@ local function spawnMysteryBox()
             fade.Completed:Wait()
 
             boxModel:Destroy()
-            -- Verity starts HIGH and travels continuously down; the bounce is inside the fall animation.
             spawnVerity(Vector3.new(startX, groundY + 29.75, startZ), false)
             task.spawn(function()
                 playVerityFallAnimation(groundY)
-                -- Only says "Hello" AFTER the bouncing is done, not while she's still falling.
                 hasIntroduced = true
                 isVerityBusy = true
                 playVeritySpeech("Hello! I'm Verity, your personal helper friend. Ask me anything; I know everything.", TALKING_FACE, "rbxassetid://71231208892767")
@@ -1649,4 +1568,4 @@ end
 
 spawnMysteryBox()
 
-print("[Verity] Fixed & Beautified UI by MoNK!")
+print("[Verity] Fixed & Beautified UI by GHOST!")
